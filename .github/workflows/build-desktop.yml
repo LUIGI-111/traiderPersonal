@@ -1,0 +1,40 @@
+name: Build desktop app
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]" && pytest -q
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Dependencias de ventana en Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-gi gir1.2-webkit2-4.1 libgirepository1.0-dev libcairo2-dev pkg-config
+      - run: pip install -e ".[desktop,build]"
+      - run: pyinstaller --noconfirm tradingdesk.spec
+      - name: Comprimir
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z a ../TradingDesk-windows.zip TradingDesk
+          elif [ "$RUNNER_OS" = "macOS" ]; then zip -qr ../TradingDesk-macos.zip TradingDesk.app
+          else tar czf ../TradingDesk-linux.tar.gz TradingDesk; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TradingDesk-${{ runner.os }}
+          path: TradingDesk-*

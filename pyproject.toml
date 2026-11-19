@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradingdesk"
+version = "0.1.0"
+description = "Mesa de trading multi-agente (paper trading por defecto) impulsada por Claude"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40",
+    "yfinance>=0.2.40",
+    "pandas>=2.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+desktop = ["pywebview>=5"]
+build = ["pyinstaller>=6"]
+
+[project.scripts]
+tradingdesk = "tradingdesk.cli:main"
+
+[project.gui-scripts]
+tradingdesk-desktop = "tradingdesk.desktop:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+tradingdesk = ["static/*"]

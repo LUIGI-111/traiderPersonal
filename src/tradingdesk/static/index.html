@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oficina de Trading</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --ink:#15181e; --muted:#667085; --line:#e4e7ec;
+    --accent:#2f5bea; --buy:#087443; --buy-bg:#dcf5e8; --sell:#b42318; --sell-bg:#fde4e1;
+    --hold:#667085; --hold-bg:#eceff3; --work:#b54708; --work-bg:#fef0c7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e1116; --panel:#171b22; --ink:#e8ebf0; --muted:#8b95a5; --line:#262c36;
+      --accent:#7b9bff; --buy:#4cd48b; --buy-bg:#12372a; --sell:#ff8a80; --sell-bg:#3d1b18;
+      --hold:#9aa4b2; --hold-bg:#242a33; --work:#f5b14c; --work-bg:#3a2a0e;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1280px;margin:0 auto;padding:16px}
+  header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+  h1{font-size:20px;margin:0}
+  .sub{color:var(--muted);font-size:12px}
+  .ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input[type=text]{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);width:260px;max-width:100%}
+  button{padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;font-weight:600}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .banner{padding:8px 12px;border-radius:8px;background:var(--work-bg);color:var(--work);margin-bottom:12px;display:none;font-weight:600}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .kpi b{display:block;font-size:18px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .kpi span{color:var(--muted);font-size:12px}
+  section{margin-bottom:20px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px}
+  .grid{display:grid;gap:10px}
+  .agents{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .desk h3{margin:0;font-size:14px}
+  .desk .role{color:var(--muted);font-size:12px;margin-bottom:8px}
+  .pill{display:inline-block;white-space:nowrap;justify-self:start;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700}
+  .BUY{background:var(--buy-bg);color:var(--buy)} .SELL{background:var(--sell-bg);color:var(--sell)}
+  .HOLD,.idle{background:var(--hold-bg);color:var(--hold)} .working{background:var(--work-bg);color:var(--work)}
+  .working::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:6px;animation:p 1s infinite}
+  @keyframes p{50%{opacity:.25}}
+  .meta{color:var(--muted);font-size:12px;margin-top:6px}
+  .cols{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  .symbols{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .sym{cursor:pointer}
+  .sym .top{display:flex;justify-content:space-between;align-items:center}
+  .sym .tk{font-size:17px;font-weight:700}
+  .rat{margin:8px 0 0;color:var(--ink)}
+  .verdict{color:var(--muted);font-size:12px;margin-top:6px}
+  .detail{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+  .sym.open .detail{display:block}
+  .sig{display:grid;grid-template-columns:90px 84px 1fr;align-items:start;gap:6px;font-size:12px;padding:3px 0}
+  .hist{font-size:12px;color:var(--muted);padding:2px 0}
+  .feed{max-height:520px;overflow:auto;padding:0}
+  .feed li{list-style:none;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12.5px}
+  .feed li:last-child{border:0}
+  .feed time{color:var(--muted);font-size:11px;display:block}
+  .feed .trade{font-weight:700} .feed .stop_loss{color:var(--sell);font-weight:700}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  th{color:var(--muted);font-weight:600}
+  .empty{color:var(--muted);padding:16px;text-align:center}
+  .pos{color:var(--buy)} .neg{color:var(--sell)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>🏢 Oficina de Trading</h1>
+      <div class="sub" id="mode">cargando…</div>
+    </div>
+    <div class="ctl">
+      <input type="text" id="tickers" value="AAPL, MSFT, NVDA, TSLA" aria-label="Tickers separados por coma">
+      <button id="bAnalyze">Analizar</button>
+      <button id="bRun" class="primary">Analizar y operar (paper)</button>
+    </div>
+  </header>
+  <div class="banner" id="banner"></div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section>
+    <h2>El equipo</h2>
+    <div class="grid agents" id="agents"></div>
+  </section>
+
+  <div class="cols">
+    <div>
+      <section>
+        <h2>Fichas por activo (clic para ver detalle)</h2>
+        <div class="grid symbols" id="symbols"></div>
+      </section>
+      <section>
+        <h2>Operaciones (paper)</h2>
+        <div class="card" style="padding:0;overflow:auto"><table id="trades"></table></div>
+      </section>
+    </div>
+    <section>
+      <h2>Actividad en vivo</h2>
+      <div class="card feed"><ul id="feed" style="margin:0;padding:0"></ul></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money = n => (n ?? 0).toLocaleString("en-US", {style:"currency", currency:"USD", maximumFractionDigits:2});
+const when = ts => ts ? new Date(ts).toLocaleString("es", {dateStyle:"short", timeStyle:"medium"}) : "—";
+const ACT = {BUY:"COMPRA", SELL:"VENTA", HOLD:"MANTENER"};
+const pill = a => `<span class="pill ${esc(a)}">${esc(ACT[a] || a)}</span>`;
+const openSyms = new Set();
+
+async function refresh(){
+  let st;
+  try { st = await (await fetch("/api/state")).json(); } catch { $("mode").textContent = "sin conexión con el servidor"; return; }
+  $("mode").textContent = "Modo: " + st.mode + " · paper trading (dinero simulado)";
+  const b = $("banner");
+  if (st.running) { b.style.display="block"; b.textContent = "Ronda en curso: " + (st.runner.symbols||[]).join(", ") + (st.runner.execute ? " (con ejecución paper)" : " (solo análisis)"); }
+  else if (st.runner && st.runner.error) { b.style.display="block"; b.textContent = "La última ronda falló: " + st.runner.error; }
+  else b.style.display="none";
+  $("bAnalyze").disabled = $("bRun").disabled = st.running;
+
+  const k = st.kpis;
+  const dd = k.peak_equity ? ((k.equity - k.peak_equity) / k.peak_equity * 100) : 0;
+  $("kpis").innerHTML = [
+    ["Patrimonio", money(k.equity)], ["Efectivo", money(k.cash)], ["Invertido", money(k.invested)],
+    ["Drawdown", dd.toFixed(2) + "%"], ["Posiciones", k.positions], ["Rondas", k.runs],
+    ["Análisis", k.analyses], ["Órdenes ejecutadas", k.trades], ["Rechazadas por riesgo", k.rejected],
+  ].map(([l,v]) => `<div class="kpi"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("");
+
+  $("agents").innerHTML = st.agents.map(a => `
+    <div class="card desk">
+      <h3>${esc(a.title)}</h3><div class="role">${esc(a.role)}</div>
+      <span class="pill ${a.status}">${a.status === "working" ? "trabajando" : "libre"}</span>
+      <div class="meta">Tareas hechas: <b>${a.tasks_done}</b></div>
+      <div class="meta">Último: ${a.last_symbol ? esc(a.last_symbol) + " → " + esc(a.last_output) : "—"}<br>${esc(when(a.last_ts))}</div>
+    </div>`).join("");
+
+  $("symbols").innerHTML = st.symbols.length ? st.symbols.map(c => {
+    const l = c.last, pos = c.position;
+    return `<div class="card sym ${openSyms.has(c.symbol) ? "open" : ""}" data-s="${esc(c.symbol)}">
+      <div class="top"><span class="tk">${esc(c.symbol)}</span>${pill(l.action)}</div>
+      <div class="meta">${money(l.price)} · confianza ${(l.confidence*100).toFixed(0)}% · ${c.analyses} análisis</div>
+      ${pos ? `<div class="meta">Posición: <b>${pos.qty}</b> @ ${money(pos.avg_price)} · P&L <b class="${c.pnl>=0?"pos":"neg"}">${money(c.pnl)}</b>${pos.stop ? " · stop " + money(pos.stop) : ""}</div>` : ""}
+      <p class="rat">${esc(l.rationale)}</p>
+      <div class="verdict">⚖ Riesgo: ${esc(l.verdict)}</div>
+      <div class="detail">
+        ${l.signals.map(s => `<div class="sig"><b>${esc(s.agent)}</b>${pill(s.action)}<span>${(s.confidence*100).toFixed(0)}% — ${esc(s.rationale)}</span></div>`).join("")}
+        <div class="meta" style="margin-top:8px">Historial</div>
+        ${c.history.map(h => `<div class="hist">${esc(when(h.ts))} · ${pill(h.action)} ${money(h.price)}${h.executed ? " · ejecutada" : ""}</div>`).join("")}
+      </div></div>`;
+  }).join("") : `<div class="card empty" style="grid-column:1/-1">Aún no hay análisis. Pulsa «Analizar» para que el equipo empiece a trabajar.</div>`;
+
+  $("trades").innerHTML = st.trades.length
+    ? `<tr><th>Fecha</th><th>Activo</th><th>Lado</th><th>Cant.</th><th>Precio</th><th>Stop</th></tr>` +
+      st.trades.map(t => `<tr><td>${esc(when(t.ts))}</td><td><b>${esc(t.symbol)}</b></td><td>${pill(t.side)}</td><td>${t.qty}</td><td>${money(t.price)}</td><td>${t.stop ? money(t.stop) : "—"}</td></tr>`).join("")
+    : `<tr><td class="empty">Sin operaciones todavía.</td></tr>`;
+
+  $("feed").innerHTML = st.feed.length
+    ? st.feed.map(f => `<li class="${esc(f.event)}"><time>${esc(when(f.ts))}</time>${esc(f.text)}</li>`).join("")
+    : `<li class="empty">Sin actividad.</li>`;
+}
+
+document.addEventListener("click", e => {
+  const c = e.target.closest(".sym"); if (!c) return;
+  const s = c.dataset.s; openSyms.has(s) ? openSyms.delete(s) : openSyms.add(s);
+  c.classList.toggle("open");
+});
+
+async function start(execute){
+  const symbols = $("tickers").value.split(/[,\s]+/).filter(Boolean);
+  const r = await fetch("/api/run", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbols, execute})});
+  const j = await r.json();
+  if (!j.ok) alert(j.message);
+  refresh();
+}
+$("bAnalyze").onclick = () => start(false);
+$("bRun").onclick = () => start(true);
+refresh(); setInterval(refresh, 1500);
+</script>
+</body>
+</html>

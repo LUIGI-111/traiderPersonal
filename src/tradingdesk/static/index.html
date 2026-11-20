@@ -9,26 +9,41 @@
     --bg:#f4f5f7; --panel:#ffffff; --ink:#15181e; --muted:#667085; --line:#e4e7ec;
     --accent:#2f5bea; --buy:#087443; --buy-bg:#dcf5e8; --sell:#b42318; --sell-bg:#fde4e1;
     --hold:#667085; --hold-bg:#eceff3; --work:#b54708; --work-bg:#fef0c7;
+    --real:#b42318; --real-bg:#fde4e1; --paper-bg:#e6edff;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --bg:#0e1116; --panel:#171b22; --ink:#e8ebf0; --muted:#8b95a5; --line:#262c36;
       --accent:#7b9bff; --buy:#4cd48b; --buy-bg:#12372a; --sell:#ff8a80; --sell-bg:#3d1b18;
       --hold:#9aa4b2; --hold-bg:#242a33; --work:#f5b14c; --work-bg:#3a2a0e;
+      --real:#ff8a80; --real-bg:#3d1b18; --paper-bg:#18233f;
     }
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
   .wrap{max-width:1280px;margin:0 auto;padding:16px}
-  header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+  header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
   h1{font-size:20px;margin:0}
   .sub{color:var(--muted);font-size:12px}
   .ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  input[type=text]{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);width:260px;max-width:100%}
-  button{padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;font-weight:600}
+  input[type=text],input[type=number],input:not([type]){padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);min-width:0;font:inherit}
+  #tickers{width:260px;max-width:100%}
+  button{padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;font-weight:600;font:inherit;font-weight:600}
   button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.danger{color:var(--sell)}
+  button.small{padding:4px 8px;font-size:12px}
   button:disabled{opacity:.5;cursor:not-allowed}
+  button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .envsw{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
+  .envsw button{border:0;border-radius:0;background:transparent;color:var(--muted)}
+  .envsw button.on.paper{background:var(--paper-bg);color:var(--accent)}
+  .envsw button.on.real{background:var(--real-bg);color:var(--real)}
+  .envbar{padding:8px 12px;border-radius:8px;margin-bottom:12px;font-weight:600;font-size:13px}
+  .envbar.paper{background:var(--paper-bg);color:var(--accent)}
+  .envbar.real{background:var(--real-bg);color:var(--real)}
   .banner{padding:8px 12px;border-radius:8px;background:var(--work-bg);color:var(--work);margin-bottom:12px;display:none;font-weight:600}
+  .msg{padding:8px 12px;border-radius:8px;background:var(--hold-bg);margin-bottom:12px;display:none}
+  .msg.err{background:var(--sell-bg);color:var(--sell)} .msg.ok{background:var(--buy-bg);color:var(--buy)}
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
   .kpi b{display:block;font-size:18px;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -45,6 +60,7 @@
   .HOLD,.idle{background:var(--hold-bg);color:var(--hold)} .working{background:var(--work-bg);color:var(--work)}
   .working::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:6px;animation:p 1s infinite}
   @keyframes p{50%{opacity:.25}}
+  @media (prefers-reduced-motion: reduce){.working::before{animation:none}}
   .meta{color:var(--muted);font-size:12px;margin-top:6px}
   .cols{display:grid;grid-template-columns:2fr 1fr;gap:16px}
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
@@ -52,22 +68,36 @@
   .sym{cursor:pointer}
   .sym .top{display:flex;justify-content:space-between;align-items:center}
   .sym .tk{font-size:17px;font-weight:700}
-  .rat{margin:8px 0 0;color:var(--ink)}
+  .rat{margin:8px 0 0}
   .verdict{color:var(--muted);font-size:12px;margin-top:6px}
   .detail{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
   .sym.open .detail{display:block}
-  .sig{display:grid;grid-template-columns:90px 84px 1fr;align-items:start;gap:6px;font-size:12px;padding:3px 0}
+  .sig{display:grid;grid-template-columns:90px 84px 1fr;gap:6px;font-size:12px;padding:3px 0;align-items:start}
   .hist{font-size:12px;color:var(--muted);padding:2px 0}
   .feed{max-height:520px;overflow:auto;padding:0}
   .feed li{list-style:none;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12.5px}
   .feed li:last-child{border:0}
   .feed time{color:var(--muted);font-size:11px;display:block}
   .feed .trade{font-weight:700} .feed .stop_loss{color:var(--sell);font-weight:700}
+  .tbl{overflow:auto}
   table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;white-space:nowrap}
   th{color:var(--muted);font-weight:600}
+  td.r,th.r{text-align:right}
   .empty{color:var(--muted);padding:16px;text-align:center}
   .pos{color:var(--buy)} .neg{color:var(--sell)}
+  .accounts{grid-template-columns:repeat(auto-fit,minmax(460px,1fr))}
+  @media(max-width:520px){.accounts{grid-template-columns:1fr}}
+  .acc h3{margin:0;font-size:16px}
+  .acc .head{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .acc .tot{font-weight:700;font-variant-numeric:tabular-nums}
+  .acc .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  form.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;margin-top:10px}
+  form.row button{grid-column:1/-1;justify-self:start}
+  details.new{margin-top:10px}
+  summary{cursor:pointer;font-weight:600;color:var(--accent)}
+  .help{color:var(--muted);font-size:12px;margin:6px 0 0}
+  [hidden]{display:none!important}
 </style>
 </head>
 <body>
@@ -78,14 +108,34 @@
       <div class="sub" id="mode">cargando…</div>
     </div>
     <div class="ctl">
-      <input type="text" id="tickers" value="AAPL, MSFT, NVDA, TSLA" aria-label="Tickers separados por coma">
+      <div class="envsw" role="group" aria-label="Entorno">
+        <button id="envPaper" class="paper">Prueba (paper)</button>
+        <button id="envReal" class="real">Real (solo lectura)</button>
+      </div>
+      <input type="text" id="tickers" aria-label="Tickers separados por coma">
       <button id="bAnalyze">Analizar</button>
       <button id="bRun" class="primary">Analizar y operar (paper)</button>
     </div>
   </header>
+  <div class="envbar" id="envbar"></div>
   <div class="banner" id="banner"></div>
+  <div class="msg" id="msg" role="status"></div>
 
   <div class="kpis" id="kpis"></div>
+
+  <section id="realView" hidden>
+    <h2>Mis cuentas reales</h2>
+    <div class="kpis" id="realTotals"></div>
+    <div class="grid accounts" id="accounts"></div>
+    <details class="new card">
+      <summary>+ Nueva cuenta (otro broker, banco, fondo…)</summary>
+      <form class="row" data-act="account">
+        <input name="name" placeholder="Nombre (ej. Davivienda)" required maxlength="40" aria-label="Nombre de la cuenta">
+        <input name="currency" placeholder="Moneda (COP)" required maxlength="5" aria-label="Moneda">
+        <button class="primary">Crear cuenta</button>
+      </form>
+    </details>
+  </section>
 
   <section>
     <h2>El equipo</h2>
@@ -98,9 +148,9 @@
         <h2>Fichas por activo (clic para ver detalle)</h2>
         <div class="grid symbols" id="symbols"></div>
       </section>
-      <section>
+      <section id="tradesSection">
         <h2>Operaciones (paper)</h2>
-        <div class="card" style="padding:0;overflow:auto"><table id="trades"></table></div>
+        <div class="card tbl" style="padding:0"><table id="trades"></table></div>
       </section>
     </div>
     <section>
@@ -113,29 +163,54 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const money = n => (n ?? 0).toLocaleString("en-US", {style:"currency", currency:"USD", maximumFractionDigits:2});
+const num = (n, d=2) => (n ?? 0).toLocaleString("en-US", {maximumFractionDigits:d});
+const money = (n, cur="USD") => { try { return (n ?? 0).toLocaleString("en-US", {style:"currency", currency:cur, maximumFractionDigits: cur==="COP"?0:2}); } catch { return num(n) + " " + esc(cur); } };
 const when = ts => ts ? new Date(ts).toLocaleString("es", {dateStyle:"short", timeStyle:"medium"}) : "—";
 const ACT = {BUY:"COMPRA", SELL:"VENTA", HOLD:"MANTENER"};
 const pill = a => `<span class="pill ${esc(a)}">${esc(ACT[a] || a)}</span>`;
 const openSyms = new Set();
 
+let env = "paper";
+try { if (localStorage.getItem("td_env") === "real") env = "real"; } catch {}
+const typed = {paper: "AAPL, MSFT, NVDA, TSLA", real: null};
+let lastReal = "";
+
+function setEnv(e){
+  typed[env] = $("tickers").value;
+  env = e; lastReal = "";
+  try { localStorage.setItem("td_env", e); } catch {}
+  applyEnv(); refresh();
+}
+function applyEnv(){
+  const real = env === "real";
+  $("envPaper").className = "paper" + (real ? "" : " on");
+  $("envReal").className = "real" + (real ? " on" : "");
+  $("envbar").className = "envbar " + env;
+  $("envbar").textContent = real
+    ? "ENTORNO REAL · solo lectura. Aquí ves tus cuentas reales; la mesa analiza y recomienda, pero nunca ejecuta órdenes."
+    : "Entorno de prueba · dinero simulado. Puedes dejar que la mesa opere en paper para ver cómo se comporta.";
+  $("realView").hidden = !real;
+  $("kpis").hidden = real; $("tradesSection").hidden = real; $("bRun").hidden = real;
+  if (typed[env] !== null) $("tickers").value = typed[env];
+}
+function showMsg(text, kind){
+  const m = $("msg"); m.textContent = text; m.className = "msg " + (kind || ""); m.style.display = text ? "block" : "none";
+}
+
 async function refresh(){
+  const wanted = env;
   let st;
-  try { st = await (await fetch("/api/state")).json(); } catch { $("mode").textContent = "sin conexión con el servidor"; return; }
-  $("mode").textContent = "Modo: " + st.mode + " · paper trading (dinero simulado)";
+  try { st = await (await fetch("/api/state?env=" + wanted)).json(); } catch { $("mode").textContent = "sin conexión con el servidor"; return; }
+  if (wanted !== env) return;  // el usuario cambió de entorno mientras llegaba la respuesta
+  $("mode").textContent = "Datos de mercado: " + st.mode;
   const b = $("banner");
-  if (st.running) { b.style.display="block"; b.textContent = "Ronda en curso: " + (st.runner.symbols||[]).join(", ") + (st.runner.execute ? " (con ejecución paper)" : " (solo análisis)"); }
+  if (st.running) { b.style.display="block"; b.textContent = "Ronda en curso (" + (st.runner.env === "real" ? "real, solo análisis" : "prueba") + "): " + (st.runner.symbols||[]).join(", "); }
   else if (st.runner && st.runner.error) { b.style.display="block"; b.textContent = "La última ronda falló: " + st.runner.error; }
   else b.style.display="none";
   $("bAnalyze").disabled = $("bRun").disabled = st.running;
 
-  const k = st.kpis;
-  const dd = k.peak_equity ? ((k.equity - k.peak_equity) / k.peak_equity * 100) : 0;
-  $("kpis").innerHTML = [
-    ["Patrimonio", money(k.equity)], ["Efectivo", money(k.cash)], ["Invertido", money(k.invested)],
-    ["Drawdown", dd.toFixed(2) + "%"], ["Posiciones", k.positions], ["Rondas", k.runs],
-    ["Análisis", k.analyses], ["Órdenes ejecutadas", k.trades], ["Rechazadas por riesgo", k.rejected],
-  ].map(([l,v]) => `<div class="kpi"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("");
+  if (env === "real") renderReal(st.real);
+  else renderPaper(st);
 
   $("agents").innerHTML = st.agents.map(a => `
     <div class="card desk">
@@ -152,7 +227,7 @@ async function refresh(){
       <div class="meta">${money(l.price)} · confianza ${(l.confidence*100).toFixed(0)}% · ${c.analyses} análisis</div>
       ${pos ? `<div class="meta">Posición: <b>${pos.qty}</b> @ ${money(pos.avg_price)} · P&L <b class="${c.pnl>=0?"pos":"neg"}">${money(c.pnl)}</b>${pos.stop ? " · stop " + money(pos.stop) : ""}</div>` : ""}
       <p class="rat">${esc(l.rationale)}</p>
-      <div class="verdict">⚖ Riesgo: ${esc(l.verdict)}</div>
+      <div class="verdict">⚖ Riesgo: ${esc(env === "real" ? "solo recomendación (entorno real no opera)" : l.verdict)}</div>
       <div class="detail">
         ${l.signals.map(s => `<div class="sig"><b>${esc(s.agent)}</b>${pill(s.action)}<span>${(s.confidence*100).toFixed(0)}% — ${esc(s.rationale)}</span></div>`).join("")}
         <div class="meta" style="margin-top:8px">Historial</div>
@@ -160,32 +235,113 @@ async function refresh(){
       </div></div>`;
   }).join("") : `<div class="card empty" style="grid-column:1/-1">Aún no hay análisis. Pulsa «Analizar» para que el equipo empiece a trabajar.</div>`;
 
-  $("trades").innerHTML = st.trades.length
-    ? `<tr><th>Fecha</th><th>Activo</th><th>Lado</th><th>Cant.</th><th>Precio</th><th>Stop</th></tr>` +
-      st.trades.map(t => `<tr><td>${esc(when(t.ts))}</td><td><b>${esc(t.symbol)}</b></td><td>${pill(t.side)}</td><td>${t.qty}</td><td>${money(t.price)}</td><td>${t.stop ? money(t.stop) : "—"}</td></tr>`).join("")
-    : `<tr><td class="empty">Sin operaciones todavía.</td></tr>`;
-
   $("feed").innerHTML = st.feed.length
     ? st.feed.map(f => `<li class="${esc(f.event)}"><time>${esc(when(f.ts))}</time>${esc(f.text)}</li>`).join("")
     : `<li class="empty">Sin actividad.</li>`;
 }
 
-document.addEventListener("click", e => {
-  const c = e.target.closest(".sym"); if (!c) return;
+function renderPaper(st){
+  const k = st.kpis;
+  const dd = k.peak_equity ? ((k.equity - k.peak_equity) / k.peak_equity * 100) : 0;
+  $("kpis").innerHTML = [
+    ["Patrimonio", money(k.equity)], ["Efectivo", money(k.cash)], ["Invertido", money(k.invested)],
+    ["Drawdown", dd.toFixed(2) + "%"], ["Posiciones", k.positions], ["Rondas", k.runs],
+    ["Análisis", k.analyses], ["Órdenes ejecutadas", k.trades], ["Rechazadas por riesgo", k.rejected],
+  ].map(([l,v]) => `<div class="kpi"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("");
+  $("trades").innerHTML = st.trades.length
+    ? `<tr><th>Fecha</th><th>Activo</th><th>Lado</th><th class="r">Cant.</th><th class="r">Precio</th><th class="r">Stop</th></tr>` +
+      st.trades.map(t => `<tr><td>${esc(when(t.ts))}</td><td><b>${esc(t.symbol)}</b></td><td>${pill(t.side)}</td><td class="r">${t.qty}</td><td class="r">${money(t.price)}</td><td class="r">${t.stop ? money(t.stop) : "—"}</td></tr>`).join("")
+    : `<tr><td class="empty">Sin operaciones todavía.</td></tr>`;
+  if (typed.paper === null) $("tickers").value = "AAPL, MSFT, NVDA, TSLA";
+}
+
+function renderReal(r){
+  if (typed.real === null) {
+    typed.real = (r.tickers.length ? r.tickers : ["BTC-USD", "ETH-USD"]).join(", ");
+    $("tickers").value = typed.real;
+  }
+  const key = JSON.stringify(r);
+  if (key === lastReal) return;  // no repintar si no cambió: así no se borra lo que estás escribiendo
+  lastReal = key;
+  const tot = Object.entries(r.totals);
+  $("realTotals").innerHTML = (tot.length ? tot.map(([c,v]) => `<div class="kpi"><b>${esc(money(v, c))}</b><span>Total en ${esc(c)}</span></div>`).join("")
+    : `<div class="kpi"><b>—</b><span>Sin posiciones todavía</span></div>`)
+    + `<div class="kpi"><b>${r.positions}</b><span>Posiciones</span></div><div class="kpi"><b>${r.accounts.length}</b><span>Cuentas</span></div>`;
+  $("accounts").innerHTML = r.accounts.map(a => {
+    const t = Object.entries(a.totals).map(([c,v]) => money(v, c)).join(" · ") || "—";
+    const rows = a.holdings.length ? `<div class="tbl"><table><tr><th>Activo</th><th class="r">Cantidad</th><th class="r">Precio</th><th class="r">Valor</th><th class="r">P&L</th><th></th></tr>` +
+      a.holdings.map(h => `<tr><td><b>${esc(h.name)}</b>${h.ticker ? ` <span class="meta">${esc(h.ticker)}</span>` : ""}</td>
+        <td class="r">${num(h.qty, 8)}</td><td class="r">${h.price == null ? "—" : money(h.price, h.currency)}</td>
+        <td class="r">${h.value == null ? "sin precio" : money(h.value, h.currency)}</td>
+        <td class="r ${h.pnl == null ? "" : (h.pnl >= 0 ? "pos" : "neg")}">${h.pnl == null ? "—" : money(h.pnl, h.currency)}</td>
+        <td class="r">${a.kind === "manual" ? `<button class="small danger" data-del-h="${esc(h.id)}" data-acc="${esc(a.id)}" aria-label="Quitar ${esc(h.name)}" title="Quitar">✕</button>` : ""}</td></tr>`).join("") + `</table></div>`
+      : `<div class="empty">Sin posiciones.</div>`;
+    const status = a.kind === "bitso"
+      ? (a.error ? `<div class="meta neg">⚠ ${esc(a.error)}</div>` : `<div class="meta">${a.synced_at ? "Sincronizado: " + esc(when(a.synced_at)) : "Aún no sincronizada."}</div>`)
+      : `<div class="meta">Carga manual${a.id === "tyba" ? " (Tyba no ofrece API pública)" : ""}</div>`;
+    const form = a.kind === "bitso"
+      ? `<div class="actions"><button class="primary" data-sync="${esc(a.id)}">Sincronizar con Bitso</button></div>
+         <p class="help">Usa una llave de Bitso con permiso solo de lectura, guardada en el archivo .env (BITSO_API_KEY y BITSO_API_SECRET).</p>`
+      : `<details class="new"><summary>+ Añadir posición</summary>
+         <form class="row" data-act="holding" data-acc="${esc(a.id)}">
+           <input name="name" placeholder="Nombre (ej. Fondo Renta)" required maxlength="60" aria-label="Nombre">
+           <input name="ticker" placeholder="Ticker (opcional)" maxlength="12" aria-label="Ticker opcional">
+           <input name="qty" type="number" step="any" min="0" placeholder="Cantidad / unidades" required aria-label="Cantidad">
+           <input name="price" type="number" step="any" min="0" placeholder="Precio o valor unitario" required aria-label="Precio unitario">
+           <input name="currency" value="${esc(a.currency)}" maxlength="5" aria-label="Moneda">
+           <input name="cost" type="number" step="any" min="0" placeholder="Costo total (opcional)" aria-label="Costo total">
+           <button class="primary">Guardar posición</button>
+         </form>
+         <p class="help">Para un fondo, pon unidades 1 y como valor unitario el saldo actual. Con el costo total se calcula la ganancia.</p></details>`;
+    return `<div class="card acc"><div class="head"><h3>${esc(a.name)} <span class="meta">${esc(a.currency)}</span></h3><span class="tot">${esc(t)}</span></div>
+      ${status}${rows}${form}
+      <div class="actions"><button class="small danger" data-del-a="${esc(a.id)}">Eliminar cuenta</button></div></div>`;
+  }).join("");
+}
+
+async function post(path, body){
+  try {
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    const j = await r.json(); showMsg(j.message, j.ok ? "ok" : "err"); return j.ok;
+  } catch { showMsg("No se pudo contactar con el servidor.", "err"); return false; }
+}
+
+document.addEventListener("click", async e => {
+  const t = e.target;
+  const sync = t.closest("[data-sync]");
+  if (sync) { sync.disabled = true; showMsg("Sincronizando con Bitso…"); await post("/api/real/sync", {account: sync.dataset.sync}); lastReal = ""; sync.disabled = false; return refresh(); }
+  const dh = t.closest("[data-del-h]");
+  if (dh) { await post("/api/real/delete", {account: dh.dataset.acc, holding: dh.dataset.delH}); lastReal = ""; return refresh(); }
+  const da = t.closest("[data-del-a]");
+  if (da) {
+    if (da.dataset.armed !== "1") { da.dataset.armed = "1"; da.textContent = "¿Seguro? Clic otra vez"; setTimeout(() => { da.dataset.armed = ""; da.textContent = "Eliminar cuenta"; }, 4000); return; }
+    await post("/api/real/delete", {account: da.dataset.delA}); lastReal = ""; return refresh();
+  }
+  const c = t.closest(".sym"); if (!c) return;
   const s = c.dataset.s; openSyms.has(s) ? openSyms.delete(s) : openSyms.add(s);
   c.classList.toggle("open");
 });
 
+document.addEventListener("submit", async e => {
+  const f = e.target.closest("form[data-act]"); if (!f) return;
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(f));
+  const path = f.dataset.act === "account" ? "/api/real/account" : "/api/real/holding";
+  if (f.dataset.acc) body.account = f.dataset.acc;
+  if (await post(path, body)) { f.reset(); lastReal = ""; refresh(); }
+});
+
 async function start(execute){
   const symbols = $("tickers").value.split(/[,\s]+/).filter(Boolean);
-  const r = await fetch("/api/run", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbols, execute})});
-  const j = await r.json();
-  if (!j.ok) alert(j.message);
+  const j = await (await fetch("/api/run", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbols, execute, env})})).json();
+  showMsg(j.ok ? "" : j.message, j.ok ? "" : "err");
   refresh();
 }
 $("bAnalyze").onclick = () => start(false);
 $("bRun").onclick = () => start(true);
-refresh(); setInterval(refresh, 1500);
+$("envPaper").onclick = () => setEnv("paper");
+$("envReal").onclick = () => setEnv("real");
+applyEnv(); refresh(); setInterval(refresh, 1500);
 </script>
 </body>
 </html>

@@ -124,3 +124,56 @@ def test_desktop_server_ephemeral_port(tmp_path):
         assert json.load(urllib.request.urlopen(base + "/api/state"))["mode"] == "demo"
     finally:
         httpd.shutdown()
+
+
+# ---------- entorno real / cuentas ----------
+def test_bitso_signature_is_deterministic():
+    from tradingdesk.bitso import sign
+    # HMAC-SHA256("secret", "1000GET/api/v3/balance/")
+    import hashlib, hmac
+    assert sign("secret", "1000", "GET", "/api/v3/balance/") == hmac.new(
+        b"secret", b"1000GET/api/v3/balance/", hashlib.sha256).hexdigest()
+
+
+def test_accounts_manual_and_totals(tmp_path):
+    from tradingdesk.accounts import AccountError, AccountStore, summarize
+    s = AccountStore(tmp_path / "a.json")
+    assert [a["id"] for a in s.load()["accounts"]] == ["bitso", "tyba"]
+    s.add_holding("tyba", {"name": "Fondo Renta", "qty": 10, "price": 1500.5, "currency": "cop", "cost": 14000})
+    sm = summarize(s.load())
+    assert sm["totals"] == {"COP": 15005.0} and sm["accounts"][1]["holdings"][0]["pnl"] == pytest.approx(1005.0)
+    with pytest.raises(AccountError):
+        s.add_holding("tyba", {"name": "x", "qty": -1, "price": 1})
+    with pytest.raises(AccountError):
+        s.add_holding("bitso", {"name": "x", "qty": 1, "price": 1})  # bitso solo por sincronización
+
+
+def test_sync_bitso_values_and_errors(tmp_path, monkeypatch):
+    from tradingdesk.accounts import AccountError, AccountStore, sync_bitso
+    s = AccountStore(tmp_path / "a.json")
+    with pytest.raises(AccountError):
+        monkeypatch.delenv("BITSO_API_KEY", raising=False)
+        sync_bitso(s)
+    monkeypatch.setenv("BITSO_API_KEY", "k"); monkeypatch.setenv("BITSO_API_SECRET", "s")
+    fake = lambda k, sec: [{"currency": "btc", "total": "0.5"}, {"currency": "mxn", "total": "1000"}]
+    px = lambda book: {"btc_mxn": 2_000_000.0}[book]
+    assert sync_bitso(s, fetch=fake, price=px) == 2
+    h = {x["symbol"]: x for x in s.load()["accounts"][0]["holdings"]}
+    assert h["BTC"]["price"] == 2_000_000.0 and h["BTC"]["ticker"] == "BTC-USD"
+    assert h["MXN"]["price"] == 1.0 and h["MXN"]["ticker"] is None
+
+
+def test_real_env_never_executes(tmp_path):
+    import time
+    from tradingdesk.server import Office
+    o = Office(settings(tmp_path), demo=True)
+    ok, _ = o.start_run(["AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH"], execute=True, env="real")
+    assert ok and o.runner["execute"] is False
+    for _ in range(100):
+        if not o.runner["running"]:
+            break
+        time.sleep(0.1)
+    assert (tmp_path / "real" / "journal.jsonl").exists()
+    assert not (tmp_path / "journal.jsonl").exists()          # el entorno paper no se tocó
+    assert PaperBroker(tmp_path / "real" / "paper_portfolio.json", 1).state["trades"] == []
+    assert o.start_run(["AAA"], False, env="otro")[0] is False

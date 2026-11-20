@@ -33,6 +33,15 @@ tradingdesk serve                    # abre LA OFICINA en http://127.0.0.1:8765
 tradingdesk serve --demo             # igual, con datos sintéticos (sin red ni API key)
 ```
 
+### Dos entornos: Prueba y Real
+Arriba a la derecha de la oficina hay un selector (se recuerda tu elección):
+- **Prueba (paper):** dinero simulado. La mesa puede operar sola en la cartera simulada.
+- **Real (solo lectura):** tus cuentas reales para verlas juntas. **Nunca ejecuta órdenes**; el servidor lo fuerza aunque se lo pidan. La mesa analiza tus activos (ej. BTC-USD, AAPL) y solo recomienda.
+  - **Bitso:** se sincroniza por API de **solo lectura**. Crea la llave en Bitso con permiso únicamente de lectura y ponla en `.env` (`BITSO_API_KEY`, `BITSO_API_SECRET`). Nunca la compartas ni la subas a git.
+  - **Tyba** y cualquier otra cuenta: carga manual desde la oficina (Tyba no ofrece API pública). Para un fondo, unidades 1 y como valor unitario el saldo; con el costo total se calcula la ganancia.
+  - Los totales se muestran **por moneda** (COP, MXN, USD), sin convertir entre ellas.
+  - Los datos reales se guardan solo en tu PC: carpeta `data/real/` (o `real/` dentro de la carpeta de datos de la app de escritorio).
+
 ### La oficina (panel web)
 Muestra en vivo qué hace cada agente (trabajando/libre, tareas hechas, último resultado), una ficha por activo estilo CRM (decisión, confianza, veredicto de riesgo, posición y P&L, historial), el feed de actividad, las operaciones y KPIs. Desde ahí también puedes lanzar rondas. Solo escucha en `127.0.0.1` (tu PC); no la expongas a internet.
 

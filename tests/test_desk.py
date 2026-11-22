@@ -187,3 +187,16 @@ def test_dotenv_tolerates_windows_bom(tmp_path, monkeypatch):
     _load_dotenv(f)
     import os
     assert os.environ["TD_TEST_KEY"] == "abc123"
+
+
+def test_llm_warning_surfaces_api_error(tmp_path):
+    from tradingdesk.data import SyntheticMarket
+    from tradingdesk.office import build_state
+
+    class Boom(LLM):
+        def __init__(self): self.model, self.client = "x", object()
+        def complete_json(self, *a, **k): raise RuntimeError("Your credit balance is too low")
+
+    desk = TradingDesk(settings(tmp_path), market=SyntheticMarket(), llm=Boom())
+    desk.run(["AAA"])
+    assert "credit balance is too low" in build_state(tmp_path)["llm_warning"]

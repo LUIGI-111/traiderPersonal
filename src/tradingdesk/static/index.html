@@ -40,6 +40,7 @@
   .envsw button.on.real{background:var(--real-bg);color:var(--real)}
   .envbar{padding:8px 12px;border-radius:8px;margin-bottom:12px;font-weight:600;font-size:13px}
   .envbar.paper{background:var(--paper-bg);color:var(--accent)}
+  .envbar.warn{background:var(--work-bg);color:var(--work)}
   .envbar.real{background:var(--real-bg);color:var(--real)}
   .banner{padding:8px 12px;border-radius:8px;background:var(--work-bg);color:var(--work);margin-bottom:12px;display:none;font-weight:600}
   .msg{padding:8px 12px;border-radius:8px;background:var(--hold-bg);margin-bottom:12px;display:none}
@@ -112,12 +113,13 @@
         <button id="envPaper" class="paper">Prueba (paper)</button>
         <button id="envReal" class="real">Real (solo lectura)</button>
       </div>
-      <input type="text" id="tickers" aria-label="Tickers separados por coma">
+      <input type="text" id="tickers" aria-label="Tickers separados por coma" placeholder="Tickers de Yahoo: AAPL, TSLA, BTC-USD" title="Usa los símbolos de Yahoo Finance: TSLA (no TESLA), BTC-USD para Bitcoin">
       <button id="bAnalyze">Analizar</button>
       <button id="bRun" class="primary">Analizar y operar (paper)</button>
     </div>
   </header>
   <div class="envbar" id="envbar"></div>
+  <div class="envbar warn" id="llmwarn" hidden></div>
   <div class="banner" id="banner"></div>
   <div class="msg" id="msg" role="status"></div>
 
@@ -203,6 +205,8 @@ async function refresh(){
   try { st = await (await fetch("/api/state?env=" + wanted)).json(); } catch { $("mode").textContent = "sin conexión con el servidor"; return; }
   if (wanted !== env) return;  // el usuario cambió de entorno mientras llegaba la respuesta
   $("mode").textContent = "Datos de mercado: " + st.mode;
+  $("llmwarn").hidden = !st.llm_warning;
+  if (st.llm_warning) $("llmwarn").textContent = "⚠ Los agentes de Claude NO están funcionando; la mesa usó reglas simples de respaldo. Motivo de la API: " + st.llm_warning;
   const b = $("banner");
   if (st.running) { b.style.display="block"; b.textContent = "Ronda en curso (" + (st.runner.env === "real" ? "real, solo análisis" : "prueba") + "): " + (st.runner.symbols||[]).join(", "); }
   else if (st.runner && st.runner.error) { b.style.display="block"; b.textContent = "La última ronda falló: " + st.runner.error; }

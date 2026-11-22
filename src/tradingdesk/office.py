@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +97,15 @@ def build_state(state_dir: str | Path, runner: dict[str, Any] | None = None) -> 
         card["position"] = pos
         card["pnl"] = round((last_price[card["symbol"]] - pos["avg_price"]) * pos["qty"], 2) if pos else None
 
+    llm_warning = None  # si la última ronda cayó al modo de respaldo por un error de la API, decir por qué
+    if analyses:
+        last = analyses[-1]
+        for sig in [*last["signals"], last["decision"]]:
+            m = re.match(r"\[fallback por error: (.*?)\] ", sig.get("rationale", ""))
+            if m:
+                llm_warning = m.group(1)
+                break
+
     invested = sum(p["qty"] * last_price.get(s, p["avg_price"]) for s, p in pf["positions"].items())
     equity = pf["cash"] + invested
     approved = sum(1 for a in analyses if a["executed"])
@@ -103,6 +113,7 @@ def build_state(state_dir: str | Path, runner: dict[str, Any] | None = None) -> 
 
     return {
         "running": running,
+        "llm_warning": llm_warning,
         "runner": runner or {},
         "agents": agents,
         "kpis": {

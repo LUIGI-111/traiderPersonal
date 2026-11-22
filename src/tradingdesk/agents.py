@@ -62,7 +62,7 @@ class Agent:
             return _clean(self.name, sym, self.llm.complete_json(self.system + "\n" + JSON_RULES, user))
         except Exception as e:  # la mesa nunca debe caerse por un analista
             s = self.heuristic(ctx)
-            s.rationale = f"[fallback por error: {type(e).__name__}] {s.rationale}"
+            s.rationale = f"[fallback por error: {type(e).__name__}: {str(e)[:300]}] {s.rationale}"
             return s
 
 
@@ -151,5 +151,5 @@ class PortfolioManager:
             return _clean(self.name, symbol, self.llm.complete_json(self.system + "\n" + JSON_RULES, user))
         except Exception as e:
             s = self.heuristic(symbol, signals)
-            s.rationale = f"[fallback por error: {type(e).__name__}] {s.rationale}"
+            s.rationale = f"[fallback por error: {type(e).__name__}: {str(e)[:300]}] {s.rationale}"
             return s

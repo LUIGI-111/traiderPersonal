@@ -9,7 +9,7 @@ def _load_dotenv(path: Path = Path(".env")) -> None:
     """Carga mínima de .env sin dependencias extra."""
     if not path.exists():
         return
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():  # utf-8-sig tolera el BOM del Bloc de notas
         line = line.split("#", 1)[0].strip()
         if "=" not in line:
             continue

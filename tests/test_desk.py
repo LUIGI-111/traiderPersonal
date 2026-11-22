@@ -177,3 +177,13 @@ def test_real_env_never_executes(tmp_path):
     assert not (tmp_path / "journal.jsonl").exists()          # el entorno paper no se tocó
     assert PaperBroker(tmp_path / "real" / "paper_portfolio.json", 1).state["trades"] == []
     assert o.start_run(["AAA"], False, env="otro")[0] is False
+
+
+def test_dotenv_tolerates_windows_bom(tmp_path, monkeypatch):
+    from tradingdesk.config import _load_dotenv
+    monkeypatch.delenv("TD_TEST_KEY", raising=False)
+    f = tmp_path / ".env"
+    f.write_bytes("﻿TD_TEST_KEY=abc123\r\n".encode("utf-8"))
+    _load_dotenv(f)
+    import os
+    assert os.environ["TD_TEST_KEY"] == "abc123"

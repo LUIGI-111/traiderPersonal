@@ -2,6 +2,8 @@ name: Build desktop app
 on:
   workflow_dispatch:
   push:
+    branches: [main]
+    paths: ["src/**", "tests/**", "pyproject.toml", "tradingdesk.spec", "run_desktop.py", ".github/workflows/build-desktop.yml"]
     tags: ["v*"]
 jobs:
   test:

@@ -7,12 +7,20 @@ from pathlib import Path
 from typing import Any
 
 AGENTS = [
-    ("technical", "Analista Técnico", "Tendencia, momentum y volatilidad"),
-    ("fundamental", "Analista Fundamental", "Valoración, calidad y crecimiento"),
-    ("news", "Analista de Noticias", "Titulares y catalizadores"),
-    ("portfolio_manager", "Gestor de Portafolio", "Sintetiza señales en una decisión"),
+    ("sma_cross", "Bot Tendencia", "Cruce de medias 50/200"),
+    ("momentum", "Bot Momentum", "Rentabilidad de 6 meses positiva"),
+    ("rsi_reversion", "Bot Reversión", "Compra en sobreventa (RSI<30), sale con RSI>55"),
+    ("breakout", "Bot Ruptura", "Máximo de 55 días / mínimo de 20"),
+    ("portfolio_manager", "Gestor de Portafolio", "Voto ponderado por el desempeño de cada bot"),
     ("risk_manager", "Gestor de Riesgo", "Reglas duras: tamaño, stops, límites"),
 ]
+# Solo aparecen si alguna vez se activó la IA de Claude (TD_USE_LLM=1)
+OPTIONAL_AGENTS = [
+    ("technical", "Analista Técnico (IA)", "Tendencia, momentum y volatilidad"),
+    ("fundamental", "Analista Fundamental (IA)", "Valoración, calidad y crecimiento"),
+    ("news", "Analista de Noticias (IA)", "Titulares y catalizadores"),
+]
+TITLES = {k: t for k, t, _ in AGENTS + OPTIONAL_AGENTS}
 
 
 def read_journal(path: Path, limit: int = 3000) -> list[dict[str, Any]]:
@@ -34,12 +42,14 @@ def describe(e: dict[str, Any]) -> str:
     if ev == "run_end":
         return f"Ronda terminada ({e.get('analyzed', 0)} activos analizados)"
     if ev == "agent_start":
-        return f"{e['agent']} analizando {sym}…"
+        return f"{TITLES.get(e['agent'], e['agent'])} analizando {sym}…"
     if ev == "agent_done":
         s = e.get("signal")
         if s:
-            return f"{e['agent']} → {s['action']} {sym} (conf. {s['confidence']:.0%}): {s['rationale']}"
-        return f"{e['agent']}: {e.get('verdict', '')}"
+            return f"{TITLES.get(e['agent'], e['agent'])} → {s['action']} {sym} (conf. {s['confidence']:.0%}): {s['rationale']}"
+        return f"{TITLES.get(e['agent'], e['agent'])}: {e.get('verdict', '')}"
+    if ev == "lab":
+        return f"Laboratorio {sym}: {e.get('verdict', '')}"
     if ev == "trade":
         return f"{e['side']} {e['qty']} {sym} @ {e['price']}" + (f" (stop {e['stop']})" if e.get("stop") else "")
     if ev == "stop_loss":
@@ -60,7 +70,8 @@ def build_state(state_dir: str | Path, runner: dict[str, Any] | None = None) -> 
 
     # --- agentes ---
     agents = []
-    for key, title, role in AGENTS:
+    used = {e.get("agent") for e in events}
+    for key, title, role in AGENTS + [a for a in OPTIONAL_AGENTS if a[0] in used]:
         mine = [e for e in events if e.get("agent") == key]
         done = [e for e in mine if e["event"] == "agent_done"]
         pending = len([e for e in mine if e["event"] == "agent_start"]) - len(done)
@@ -111,8 +122,13 @@ def build_state(state_dir: str | Path, runner: dict[str, Any] | None = None) -> 
     approved = sum(1 for a in analyses if a["executed"])
     runs = [e for e in events if e["event"] == "run_start"]
 
+    lab_path = state_dir / "lab.json"
+    lab_all = json.loads(lab_path.read_text()) if lab_path.exists() else {}
+    lab = {sym: {"computed_at": d["computed_at"], "verdict": d["verdict"]} for sym, d in lab_all.items()}
+
     return {
         "running": running,
+        "lab": lab,
         "llm_warning": llm_warning,
         "runner": runner or {},
         "agents": agents,

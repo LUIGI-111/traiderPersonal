@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from .llm import LLM
+from .strategies import VOTERS
 
 ACTIONS = ("BUY", "SELL", "HOLD")
 
@@ -43,19 +44,19 @@ class Agent:
     name = "agent"
     system = ""
 
-    def __init__(self, llm: LLM):
+    def __init__(self, llm: LLM | None = None):
         self.llm = llm
 
     def payload(self, ctx: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError
 
     def heuristic(self, ctx: dict[str, Any]) -> Signal:
-        """Fallback determinista (modo offline o si falla la API)."""
-        return Signal(self.name, ctx["symbol"], "HOLD", 0.0, "Sin análisis (offline).")
+        """Fallback determinista (si falla la API)."""
+        return Signal(self.name, ctx["symbol"], "HOLD", 0.0, "Sin análisis.")
 
     def analyze(self, ctx: dict[str, Any]) -> Signal:
         sym = ctx["symbol"]
-        if not self.llm.available:
+        if self.llm is None or not self.llm.available:
             return self.heuristic(ctx)
         try:
             user = f"Activo: {sym}\nDatos:\n{json.dumps(self.payload(ctx), ensure_ascii=False, default=str)}"
@@ -64,6 +65,27 @@ class Agent:
             s = self.heuristic(ctx)
             s.rationale = f"[fallback por error: {type(e).__name__}: {str(e)[:300]}] {s.rationale}"
             return s
+
+
+class StrategyBot(Agent):
+    """Bot cuantitativo: aplica una regla clásica y reporta qué tan bien le ha ido en ESTE activo.
+    No usa IA ni API: cálculo puro, sin costo por ejecución."""
+
+    def __init__(self, key: str):
+        super().__init__(None)
+        self.key = self.name = key
+
+    def analyze(self, ctx: dict[str, Any]) -> Signal:
+        sym, lab = ctx["symbol"], ctx.get("lab")
+        if not lab:
+            return Signal(self.name, sym, "HOLD", 0.0, "Sin historial suficiente para evaluar esta regla.")
+        s, bh = lab["strategies"][self.key], lab["strategies"]["buy_hold"]
+        bullish = s["signal"] == 1
+        conf = max(0.3, min(0.9, 0.5 + 0.2 * s["sharpe"]))
+        txt = (f"{s['name']}: {'dentro' if bullish else 'fuera'} del mercado hoy. "
+               f"Histórico en {sym}: {s['total_return']:+.0%} (comprar y mantener {bh['total_return']:+.0%}), "
+               f"caída máx. {s['max_drawdown']:.0%}, Sharpe {s['sharpe']:.2f}.")
+        return Signal(self.name, sym, "BUY" if bullish else "SELL", conf, txt)
 
 
 class TechnicalAnalyst(Agent):
@@ -75,19 +97,6 @@ class TechnicalAnalyst(Agent):
 
     def payload(self, ctx):
         return ctx["indicators"]
-
-    def heuristic(self, ctx):
-        i = ctx["indicators"]
-        price, sma50, sma200, rsi = i.get("price"), i.get("sma50"), i.get("sma200"), i.get("rsi14")
-        if None in (price, sma50, rsi):
-            return Signal(self.name, ctx["symbol"], "HOLD", 0.0, "Datos insuficientes.")
-        macd_up = (i.get("macd") or 0) > (i.get("macd_signal") or 0)
-        uptrend = price > sma50 and (sma200 is None or sma50 > sma200)
-        if uptrend and macd_up and rsi < 70:
-            return Signal(self.name, ctx["symbol"], "BUY", 0.65, f"Tendencia alcista, MACD positivo, RSI {rsi:.0f}.")
-        if price < sma50 and not macd_up:
-            return Signal(self.name, ctx["symbol"], "SELL", 0.6, f"Bajo SMA50 con MACD negativo, RSI {rsi:.0f}.")
-        return Signal(self.name, ctx["symbol"], "HOLD", 0.4, "Señales mixtas.")
 
 
 class FundamentalAnalyst(Agent):
@@ -113,43 +122,62 @@ class NewsAnalyst(Agent):
 
 
 class PortfolioManager:
-    """Sintetiza las señales de los analistas en una decisión única."""
+    """Sintetiza las señales en una decisión única. Sin IA: voto ponderado por el desempeño histórico
+    de cada bot en ese activo. Con IA opcional (use_llm) delega la síntesis en Claude."""
 
     name = "portfolio_manager"
     system = (
-        "Eres el gestor de portafolio. Recibes señales de analistas (técnico, fundamental, noticias) y "
-        "el estado de la cartera. Pondera por calidad de la evidencia, no por mayoría simple; "
-        "si hay desacuerdo fuerte, prefiere HOLD. SELL solo aplica si ya hay posición. "
-        "Un gestor de riesgo independiente puede vetar o reducir tu orden."
+        "Eres el gestor de portafolio. Recibes señales de analistas y bots cuantitativos y el estado de la cartera. "
+        "Pondera por calidad de la evidencia, no por mayoría simple; si hay desacuerdo fuerte, prefiere HOLD. "
+        "SELL solo aplica si ya hay posición. Un gestor de riesgo independiente puede vetar o reducir tu orden."
     )
+    LEGACY_WEIGHTS = {"technical": 0.4, "fundamental": 0.35, "news": 0.25}
+    ENTER, EXIT = 0.5, -0.5  # umbrales del voto ponderado (-1..+1)
 
-    WEIGHTS = {"technical": 0.4, "fundamental": 0.35, "news": 0.25}
+    def __init__(self, llm: LLM | None = None, use_llm: bool = False):
+        self.llm, self.use_llm = llm, use_llm
 
-    def __init__(self, llm: LLM):
-        self.llm = llm
+    def heuristic(self, symbol: str, signals: list[Signal], view: dict[str, Any] | None = None,
+                  weights: dict[str, float] | None = None) -> Signal:
+        qty = (view or {}).get("position_qty", 0)
+        quant = [s for s in signals if s.agent in VOTERS]
+        if quant:
+            w = {s.agent: (weights or {}).get(s.agent, 1 / len(quant)) for s in quant}
+            tot = sum(w.values()) or 1.0
+            score = sum(w[s.agent] * {"BUY": 1, "SELL": -1, "HOLD": 0}[s.action] for s in quant) / tot
+            votes = ", ".join(f"{s.agent} {'↑' if s.action == 'BUY' else '↓' if s.action == 'SELL' else '·'}" for s in quant)
+            conf = min(1.0, 0.5 + 0.5 * abs(score))
+            info = f"Voto ponderado {score:+.2f} ({votes})."
+            if score >= self.ENTER:
+                if qty > 0:
+                    return Signal(self.name, symbol, "HOLD", conf, f"{info} Señal alcista, pero ya hay posición abierta.")
+                return Signal(self.name, symbol, "BUY", conf, f"{info} Los bots mejor puntuados en este activo coinciden: entrar.")
+            if score <= self.EXIT:
+                if qty > 0:
+                    return Signal(self.name, symbol, "SELL", conf, f"{info} Los bots ven tendencia rota: salir.")
+                return Signal(self.name, symbol, "HOLD", conf, f"{info} Señal bajista y sin posición: se queda fuera.")
+            return Signal(self.name, symbol, "HOLD", 0.5, f"{info} Bots divididos: sin convicción.")
 
-    def heuristic(self, symbol: str, signals: list[Signal]) -> Signal:
-        score = 0.0
-        for s in signals:
-            w = self.WEIGHTS.get(s.agent, 0.2)
-            score += w * s.confidence * {"BUY": 1, "SELL": -1, "HOLD": 0}[s.action]
+        score = sum(self.LEGACY_WEIGHTS.get(s.agent, 0.2) * s.confidence * {"BUY": 1, "SELL": -1, "HOLD": 0}[s.action]
+                    for s in signals)
         if score > 0.2:
             return Signal(self.name, symbol, "BUY", min(1.0, score + 0.4), f"Voto ponderado {score:+.2f}.")
         if score < -0.2:
             return Signal(self.name, symbol, "SELL", min(1.0, -score + 0.4), f"Voto ponderado {score:+.2f}.")
         return Signal(self.name, symbol, "HOLD", 0.5, f"Voto ponderado {score:+.2f}: sin convicción.")
 
-    def decide(self, symbol: str, signals: list[Signal], portfolio_view: dict[str, Any]) -> Signal:
-        if not self.llm.available:
-            return self.heuristic(symbol, signals)
+    def decide(self, symbol: str, signals: list[Signal], portfolio_view: dict[str, Any],
+               weights: dict[str, float] | None = None) -> Signal:
+        if not (self.use_llm and self.llm is not None and self.llm.available):
+            return self.heuristic(symbol, signals, portfolio_view, weights)
         try:
             user = json.dumps(
-                {"symbol": symbol, "signals": [s.to_dict() for s in signals], "portfolio": portfolio_view},
-                ensure_ascii=False,
-                default=str,
+                {"symbol": symbol, "signals": [s.to_dict() for s in signals], "portfolio": portfolio_view,
+                 "pesos_historicos_de_los_bots": weights},
+                ensure_ascii=False, default=str,
             )
             return _clean(self.name, symbol, self.llm.complete_json(self.system + "\n" + JSON_RULES, user))
         except Exception as e:
-            s = self.heuristic(symbol, signals)
+            s = self.heuristic(symbol, signals, portfolio_view, weights)
             s.rationale = f"[fallback por error: {type(e).__name__}: {str(e)[:300]}] {s.rationale}"
             return s

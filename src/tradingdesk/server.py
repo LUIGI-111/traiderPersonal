@@ -37,7 +37,7 @@ class Office:
     def state_dir(self, env: str) -> Path:
         return Path(self.settings.state_dir) if env == "paper" else self.real_dir
 
-    def start_run(self, symbols: list[str], execute: bool, env: str = "paper") -> tuple[bool, str]:
+    def start_run(self, symbols: list[str], execute: bool, env: str = "paper", lab_only: bool = False) -> tuple[bool, str]:
         symbols = [s.strip().upper() for s in symbols if str(s).strip()]
         if env not in ENVS:
             return False, "Entorno inválido."
@@ -48,17 +48,17 @@ class Office:
         with self.lock:
             if self.runner.get("running"):
                 return False, "Ya hay una ronda en curso."
-            self.runner = {"running": True, "symbols": symbols, "execute": execute, "env": env,
+            self.runner = {"running": True, "symbols": symbols, "execute": execute, "env": env, "lab_only": lab_only,
                            "started": time.time(), "error": None}
-        threading.Thread(target=self._work, args=(symbols, execute, env), daemon=True).start()
+        threading.Thread(target=self._work, args=(symbols, execute, env, lab_only), daemon=True).start()
         return True, "Ronda iniciada."
 
-    def _work(self, symbols: list[str], execute: bool, env: str) -> None:
+    def _work(self, symbols: list[str], execute: bool, env: str, lab_only: bool = False) -> None:
         err = None
         try:
             settings = dataclasses.replace(self.settings, state_dir=str(self.state_dir(env)))
             desk = TradingDesk(settings, market=SyntheticMarket() if self.demo else YahooMarket())
-            desk.run(symbols, execute=execute)
+            desk.lab(symbols) if lab_only else desk.run(symbols, execute=execute)
         except Exception as e:  # noqa: BLE001
             err = f"{type(e).__name__}: {e}"
         with self.lock:
@@ -86,6 +86,13 @@ def make_handler(office: Office):
             if url.path in ("/", "/index.html"):
                 html = resources.files("tradingdesk").joinpath("static/index.html").read_bytes()
                 self._send(200, html, "text/html; charset=utf-8")
+            elif url.path == "/api/lab":
+                q = parse_qs(url.query)
+                env = (q.get("env") or ["paper"])[0]
+                sym = (q.get("symbol") or [""])[0].upper()
+                path = office.state_dir(env if env in ENVS else "paper") / "lab.json"
+                data = json.loads(path.read_text()) if path.exists() else {}
+                self._json(200 if sym in data else 404, data.get(sym, {"ok": False, "message": "Sin laboratorio para ese símbolo."}))
             elif url.path == "/api/state":
                 env = (parse_qs(url.query).get("env") or ["paper"])[0]
                 env = env if env in ENVS else "paper"
@@ -117,6 +124,9 @@ def make_handler(office: Office):
                 if path == "/api/run":
                     ok, msg = office.start_run(list(body.get("symbols", [])), bool(body.get("execute", False)),
                                                str(body.get("env", "paper")))
+                    return self._json(200 if ok else 400, {"ok": ok, "message": msg})
+                if path == "/api/lab":
+                    ok, msg = office.start_run(list(body.get("symbols", [])), False, str(body.get("env", "paper")), lab_only=True)
                     return self._json(200 if ok else 400, {"ok": ok, "message": msg})
                 if path == "/api/real/sync":
                     n_pos = sync_bitso(office.store, str(body.get("account", "bitso")))

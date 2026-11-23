@@ -32,6 +32,7 @@ class Settings:
     min_confidence: float = 0.60
     max_drawdown_pct: float = 0.10
     state_dir: str = "data"
+    use_llm: bool = False  # IA de Claude (opcional y de pago). Por defecto, todo es cuantitativo y gratis.
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -46,4 +47,5 @@ class Settings:
             min_confidence=_f("TD_MIN_CONFIDENCE", cls.min_confidence),
             max_drawdown_pct=_f("TD_MAX_DRAWDOWN_PCT", cls.max_drawdown_pct),
             state_dir=os.getenv("TD_STATE_DIR", cls.state_dir),
+            use_llm=os.getenv("TD_USE_LLM", "0").strip().lower() in ("1", "true", "si", "sí", "yes"),
         )

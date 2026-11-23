@@ -8,10 +8,12 @@ Datos (yfinance) ─┬─> Analista técnico ───┐
                   └─> Analista de noticias ┘      (LLM, sintetiza)     (reglas duras)      + stop-loss
 ```
 
-- **Analistas** (en paralelo): cada uno devuelve `BUY/SELL/HOLD` + confianza + justificación.
+- **Bots cuantitativos** (en paralelo, **sin costo de API**): Tendencia (cruce 50/200), Momentum (6 meses), Reversión (RSI) y Ruptura (canal de 55 días). Cada uno devuelve señal + qué tan bien le ha ido históricamente en ese activo.
+- **Laboratorio de estrategias:** antes de votar, cada regla se prueba contra ~5 años de historia real (con costos, ejecutando al día siguiente, parámetros fijos sin optimizar) y se compara con comprar y mantener. Se ve en la oficina. El peso de cada bot en el voto sale de su Sharpe en ese activo.
+- **IA opcional:** con `TD_USE_LLM=1` y `ANTHROPIC_API_KEY` se suman analistas de Claude (técnico, fundamental, noticias) y Claude sintetiza la decisión. Es un extra de pago; sin él todo funciona igual.
 - **Gestor de riesgo**: código determinista, no un LLM. Dimensiona por ATR, limita posición/exposición, confianza mínima, sin cortos, kill-switch por drawdown.
 - **Journal** (`data/journal.jsonl`): cada decisión queda registrada para auditar.
-- Sin `ANTHROPIC_API_KEY` funciona en modo offline con heurísticas (útil para probar).
+- No necesita API de pago: la oficina funciona completa con los bots cuantitativos.
 
 ## Instalación en tu PC central
 

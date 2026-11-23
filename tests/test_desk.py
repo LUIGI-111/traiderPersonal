@@ -102,7 +102,7 @@ def test_office_state_and_server(tmp_path):
     desk = TradingDesk(settings(tmp_path), market=SyntheticMarket(), llm=offline_llm())
     desk.run(["AAA", "BBB", "CCC"])
     st = build_state(tmp_path)
-    assert {a["key"] for a in st["agents"]} >= {"technical", "risk_manager"}
+    assert {a["key"] for a in st["agents"]} >= {"sma_cross", "momentum", "portfolio_manager", "risk_manager"}
     assert all(a["tasks_done"] == 3 for a in st["agents"])
     assert len(st["symbols"]) == 3 and st["kpis"]["analyses"] == 3
     assert st["feed"][0]["event"] == "run_end"
@@ -197,6 +197,73 @@ def test_llm_warning_surfaces_api_error(tmp_path):
         def __init__(self): self.model, self.client = "x", object()
         def complete_json(self, *a, **k): raise RuntimeError("Your credit balance is too low")
 
-    desk = TradingDesk(settings(tmp_path), market=SyntheticMarket(), llm=Boom())
+    desk = TradingDesk(Settings(state_dir=str(tmp_path), use_llm=True), market=SyntheticMarket(), llm=Boom())
     desk.run(["AAA"])
     assert "credit balance is too low" in build_state(tmp_path)["llm_warning"]
+
+
+# ---------- laboratorio / estrategias ----------
+def synth_df(n=1260, seed=3, drift=0.0004):
+    rng = np.random.default_rng(seed)
+    close = 100 * np.cumprod(1 + drift + rng.normal(0, 0.012, n))
+    return pd.DataFrame({"Close": close, "High": close * 1.01, "Low": close * 0.99},
+                        index=pd.bdate_range(end="2026-11-20", periods=n))
+
+
+def test_backtest_has_no_lookahead():
+    from tradingdesk.lab import backtest
+    df = synth_df()
+    cheat = (df["Close"].pct_change() > 0).astype(float)  # "sabe" si HOY sube; si se ejecutara hoy ganaría siempre
+    m, _ = backtest(df, cheat)
+    assert m["total_return"] < 1.0  # ejecutada al día siguiente no tiene ventaja: no explota
+
+
+def test_buy_hold_matches_price_and_costs():
+    from tradingdesk.lab import backtest
+    from tradingdesk.strategies import WARMUP, buy_hold
+    df = synth_df()
+    m, pts = backtest(df, buy_hold(df))
+    raw = df["Close"].iloc[-1] / df["Close"].iloc[WARMUP - 1] - 1
+    assert abs(m["total_return"] - raw) < 0.02 and m["exposure"] == 1.0 and m["trades"] == 1
+    assert pts[0][1] > 90 and len(pts) <= 125
+
+
+def test_run_lab_structure_and_weights():
+    from tradingdesk.lab import run_lab
+    from tradingdesk.strategies import VOTERS
+    lab = run_lab(synth_df())
+    assert set(lab["strategies"]) == {"buy_hold", *VOTERS}
+    assert abs(sum(lab["weights"].values()) - 1) < 0.01 and "buy_hold" not in lab["weights"]
+    assert lab["verdict"] and lab["strategies"]["sma_cross"]["signal"] in (0, 1)
+    with pytest.raises(ValueError):
+        run_lab(synth_df(n=150))
+
+
+def test_portfolio_manager_votes_with_position_awareness():
+    from tradingdesk.agents import PortfolioManager, Signal
+    pm = PortfolioManager(None, use_llm=False)
+    up = [Signal(k, "X", "BUY", .8, "") for k in ("sma_cross", "momentum", "rsi_reversion", "breakout")]
+    down = [Signal(k, "X", "SELL", .8, "") for k in ("sma_cross", "momentum", "rsi_reversion", "breakout")]
+    assert pm.decide("X", up, {"position_qty": 0}).action == "BUY"
+    assert pm.decide("X", up, {"position_qty": 5}).action == "HOLD"      # ya está dentro
+    assert pm.decide("X", down, {"position_qty": 0}).action == "HOLD"    # sin posición no hay nada que vender
+    assert pm.decide("X", down, {"position_qty": 5}).action == "SELL"
+    split = up[:2] + down[:2]
+    assert pm.decide("X", split, {"position_qty": 0}).action == "HOLD"
+    # un bot con peso casi nulo no puede arrastrar la decisión
+    w = {"sma_cross": .45, "momentum": .45, "rsi_reversion": .05, "breakout": .05}
+    mixed = [up[0], up[1], down[2], down[3]]
+    assert pm.decide("X", mixed, {"position_qty": 0}, w).action == "BUY"
+
+
+def test_desk_run_populates_lab_and_needs_no_api(tmp_path, monkeypatch):
+    from tradingdesk.data import SyntheticMarket
+    from tradingdesk.office import build_state
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    desk = TradingDesk(settings(tmp_path), market=SyntheticMarket())
+    assert desk.llm is None and len(desk.analysts) == 4
+    desk.run(["AAA", "BBB"], execute=True)
+    st = build_state(tmp_path)
+    assert set(st["lab"]) == {"AAA", "BBB"} and st["llm_warning"] is None
+    full = __import__("json").loads((tmp_path / "lab.json").read_text())
+    assert len(full["AAA"]["strategies"]["buy_hold"]["equity"]) > 10

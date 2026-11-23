@@ -40,8 +40,8 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     desk = TradingDesk(Settings.from_env())
-    if not desk.llm.available:
-        print("[aviso] Sin ANTHROPIC_API_KEY: usando heurísticas offline en vez de agentes Claude.")
+    if desk.s.use_llm and not (desk.llm and desk.llm.available):
+        print("[aviso] TD_USE_LLM está activo pero falta ANTHROPIC_API_KEY: se usan solo los bots cuantitativos.")
 
     if args.cmd in ("analyze", "run"):
         for r in desk.run(args.symbols, execute=(args.cmd == "run")):

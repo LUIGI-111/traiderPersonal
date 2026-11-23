@@ -10,6 +10,7 @@
     --accent:#2f5bea; --buy:#087443; --buy-bg:#dcf5e8; --sell:#b42318; --sell-bg:#fde4e1;
     --hold:#667085; --hold-bg:#eceff3; --work:#b54708; --work-bg:#fef0c7;
     --real:#b42318; --real-bg:#fde4e1; --paper-bg:#e6edff;
+    --c1:#2f5bea; --c2:#d9480f; --c3:#0b8a5f; --c4:#8a3ffc; --bench:#667085;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
@@ -17,6 +18,7 @@
       --accent:#7b9bff; --buy:#4cd48b; --buy-bg:#12372a; --sell:#ff8a80; --sell-bg:#3d1b18;
       --hold:#9aa4b2; --hold-bg:#242a33; --work:#f5b14c; --work-bg:#3a2a0e;
       --real:#ff8a80; --real-bg:#3d1b18; --paper-bg:#18233f;
+      --c1:#7b9bff; --c2:#ff9a62; --c3:#4cd48b; --c4:#b794ff; --bench:#9aa4b2;
     }
   }
   *{box-sizing:border-box}
@@ -73,7 +75,7 @@
   .verdict{color:var(--muted);font-size:12px;margin-top:6px}
   .detail{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
   .sym.open .detail{display:block}
-  .sig{display:grid;grid-template-columns:90px 84px 1fr;gap:6px;font-size:12px;padding:3px 0;align-items:start}
+  .sig{display:grid;grid-template-columns:130px 84px 1fr;gap:6px;font-size:12px;padding:3px 0;align-items:start}
   .hist{font-size:12px;color:var(--muted);padding:2px 0}
   .feed{max-height:520px;overflow:auto;padding:0}
   .feed li{list-style:none;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12.5px}
@@ -98,6 +100,16 @@
   details.new{margin-top:10px}
   summary{cursor:pointer;font-weight:600;color:var(--accent)}
   .help{color:var(--muted);font-size:12px;margin:6px 0 0}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .chip{padding:4px 10px;font-size:12px}
+  .chip.on{background:var(--paper-bg);color:var(--accent);border-color:var(--accent)}
+  .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+  tr.bench td{background:var(--hold-bg)}
+  td .meta{margin:0;white-space:normal;max-width:300px;font-weight:400}
+  .verdict-box{margin:0 0 10px;padding:8px 12px;border-radius:8px;background:var(--hold-bg)}
+  svg.chart{width:100%;height:auto;display:block;margin-top:12px}
+  svg.chart text{fill:var(--muted);font-size:10px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-top:8px}
   [hidden]{display:none!important}
 </style>
 </head>
@@ -115,6 +127,7 @@
       </div>
       <input type="text" id="tickers" aria-label="Tickers separados por coma" placeholder="Tickers de Yahoo: AAPL, TSLA, BTC-USD" title="Usa los símbolos de Yahoo Finance: TSLA (no TESLA), BTC-USD para Bitcoin">
       <button id="bAnalyze">Analizar</button>
+      <button id="bLab">Probar estrategias</button>
       <button id="bRun" class="primary">Analizar y operar (paper)</button>
     </div>
   </header>
@@ -144,6 +157,15 @@
     <div class="grid agents" id="agents"></div>
   </section>
 
+  <section id="labSection">
+    <h2>Laboratorio de estrategias</h2>
+    <div class="card">
+      <div class="chips" id="labChips"></div>
+      <div id="labBody"></div>
+    </div>
+    <p class="help">Cada regla se prueba con parámetros clásicos fijos (sin optimizar, para no ajustarlos a la historia), con ~5 años de datos reales, un costo de 0,1% por operación y ejecutando la señal al día siguiente. Los resultados pasados no garantizan resultados futuros.</p>
+  </section>
+
   <div class="cols">
     <div>
       <section>
@@ -171,6 +193,11 @@ const when = ts => ts ? new Date(ts).toLocaleString("es", {dateStyle:"short", ti
 const ACT = {BUY:"COMPRA", SELL:"VENTA", HOLD:"MANTENER"};
 const pill = a => `<span class="pill ${esc(a)}">${esc(ACT[a] || a)}</span>`;
 const openSyms = new Set();
+const COLORS = {sma_cross:"var(--c1)", momentum:"var(--c2)", rsi_reversion:"var(--c3)", breakout:"var(--c4)", buy_hold:"var(--bench)"};
+const pc = (x, d=0) => x == null ? "—" : (x*100).toFixed(d) + "%";
+const spc = (x, d=0) => x == null ? "—" : (x >= 0 ? "+" : "") + (x*100).toFixed(d) + "%";
+const tone = x => x == null ? "" : (x >= 0 ? "pos" : "neg");
+const labCache = {}; let labSym = null, lastLabKey = "", labBusy = false;
 
 let env = "paper";
 try { if (localStorage.getItem("td_env") === "real") env = "real"; } catch {}
@@ -183,6 +210,60 @@ function setEnv(e){
   try { localStorage.setItem("td_env", e); } catch {}
   applyEnv(); refresh();
 }
+function chartSvg(d, order){
+  const W = 800, H = 260, L = 48, R = 10, T = 10, B = 22;
+  const series = order.map(k => ({k, pts: d.strategies[k].equity}));
+  let min = Infinity, max = -Infinity;
+  series.forEach(s => s.pts.forEach(p => { min = Math.min(min, p[1]); max = Math.max(max, p[1]); }));
+  const pad = (max - min) * 0.05 || 1; min -= pad; max += pad;
+  const n = series[0].pts.length;
+  const x = i => L + (W - L - R) * i / Math.max(1, n - 1);
+  const y = v => T + (H - T - B) * (1 - (v - min) / (max - min));
+  let g = "";
+  for (let i = 0; i < 4; i++) {
+    const v = min + (max - min) * i / 3;
+    g += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-6}" y="${y(v)+3}" text-anchor="end">${v.toFixed(0)}</text>`;
+  }
+  const dates = series[0].pts;
+  g += [0, Math.floor((n-1)/2), n-1].map((i, j) => `<text x="${x(i)}" y="${H-6}" text-anchor="${j===0?"start":j===2?"end":"middle"}">${esc(dates[i][0])}</text>`).join("");
+  const lines = series.map(s => `<polyline fill="none" stroke="${COLORS[s.k]}" stroke-width="${s.k==="buy_hold"?1.6:2}" ${s.k==="buy_hold"?'stroke-dasharray="5 4"':""} points="${s.pts.map((p,i) => x(i).toFixed(1)+","+y(p[1]).toFixed(1)).join(" ")}"/>`).join("");
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolución de 100 unidades invertidas con cada estrategia">${g}${lines}</svg>`;
+}
+
+async function renderLab(lab){
+  if (labBusy) return; labBusy = true;
+  try {
+    const syms = Object.keys(lab);
+    if (!syms.length) {
+      lastLabKey = "";
+      $("labChips").innerHTML = "";
+      $("labBody").innerHTML = `<div class="empty">Pulsa «Probar estrategias» para evaluar las reglas contra la historia real de tus tickers.</div>`;
+      return;
+    }
+    if (!labSym || !lab[labSym]) labSym = syms[0];
+    const meta = lab[labSym], ck = env + "|" + labSym;
+    if (!labCache[ck] || labCache[ck].computed_at !== meta.computed_at) {
+      try { const r = await fetch(`/api/lab?env=${env}&symbol=${encodeURIComponent(labSym)}`); if (!r.ok) return; labCache[ck] = await r.json(); } catch { return; }
+    }
+    const key = ck + "|" + meta.computed_at + "|" + syms.join(",");
+    if (key === lastLabKey) return; lastLabKey = key;
+    const d = labCache[ck];
+    $("labChips").innerHTML = syms.map(s => `<button class="chip ${s === labSym ? "on" : ""}" data-lab="${esc(s)}">${esc(s)}</button>`).join("");
+    const order = ["buy_hold", ...Object.keys(d.strategies).filter(k => k !== "buy_hold")];
+    const rows = order.map(k => { const s = d.strategies[k], w = d.weights[k];
+      return `<tr class="${k === "buy_hold" ? "bench" : ""}"><td><span class="sw" style="background:${COLORS[k]}"></span><b>${esc(s.name)}</b><div class="meta">${esc(s.desc)}</div></td>
+        <td class="r ${tone(s.total_return)}">${spc(s.total_return)}</td><td class="r">${spc(s.cagr, 1)}</td><td class="r neg">${pc(s.max_drawdown)}</td>
+        <td class="r">${s.sharpe.toFixed(2)}</td><td class="r">${s.trades}</td><td class="r">${pc(s.win_rate)}</td><td class="r">${pc(s.exposure)}</td>
+        <td class="r ${tone(s.recent_return)}">${spc(s.recent_return)}</td>
+        <td>${k === "buy_hold" ? "—" : (s.signal ? '<span class="pill BUY">dentro</span>' : '<span class="pill HOLD">fuera</span>')}</td>
+        <td class="r">${w == null ? "—" : pc(w)}</td></tr>`; }).join("");
+    $("labBody").innerHTML = `<div class="verdict-box"><b>${esc(labSym)}</b> · ${esc(d.start)} → ${esc(d.end)} (${d.days} días hábiles). ${esc(d.verdict)}</div>
+      <div class="tbl"><table><tr><th>Estrategia</th><th class="r">Rentab. total</th><th class="r">Anual</th><th class="r">Caída máx.</th><th class="r">Sharpe</th><th class="r">Operac.</th><th class="r">Aciertos</th><th class="r">% invertido</th><th class="r">Último 30%</th><th>Hoy</th><th class="r">Peso en voto</th></tr>${rows}</table></div>
+      ${chartSvg(d, order)}
+      <div class="legend">${order.map(k => `<span><span class="sw" style="background:${COLORS[k]}"></span>${esc(d.strategies[k].name)}</span>`).join("")}</div>`;
+  } finally { labBusy = false; }
+}
+
 function applyEnv(){
   const real = env === "real";
   $("envPaper").className = "paper" + (real ? "" : " on");
@@ -208,10 +289,11 @@ async function refresh(){
   $("llmwarn").hidden = !st.llm_warning;
   if (st.llm_warning) $("llmwarn").textContent = "⚠ Los agentes de Claude NO están funcionando; la mesa usó reglas simples de respaldo. Motivo de la API: " + st.llm_warning;
   const b = $("banner");
-  if (st.running) { b.style.display="block"; b.textContent = "Ronda en curso (" + (st.runner.env === "real" ? "real, solo análisis" : "prueba") + "): " + (st.runner.symbols||[]).join(", "); }
+  if (st.running) { b.style.display="block"; b.textContent = (st.runner.lab_only ? "Laboratorio en curso: " : "Ronda en curso (" + (st.runner.env === "real" ? "real, solo análisis" : "prueba") + "): ") + (st.runner.symbols||[]).join(", "); }
   else if (st.runner && st.runner.error) { b.style.display="block"; b.textContent = "La última ronda falló: " + st.runner.error; }
   else b.style.display="none";
-  $("bAnalyze").disabled = $("bRun").disabled = st.running;
+  $("bAnalyze").disabled = $("bRun").disabled = $("bLab").disabled = st.running;
+  renderLab(st.lab || {});
 
   if (env === "real") renderReal(st.real);
   else renderPaper(st);
@@ -224,6 +306,7 @@ async function refresh(){
       <div class="meta">Último: ${a.last_symbol ? esc(a.last_symbol) + " → " + esc(a.last_output) : "—"}<br>${esc(when(a.last_ts))}</div>
     </div>`).join("");
 
+  const titles = Object.fromEntries(st.agents.map(a => [a.key, a.title]));
   $("symbols").innerHTML = st.symbols.length ? st.symbols.map(c => {
     const l = c.last, pos = c.position;
     return `<div class="card sym ${openSyms.has(c.symbol) ? "open" : ""}" data-s="${esc(c.symbol)}">
@@ -233,7 +316,7 @@ async function refresh(){
       <p class="rat">${esc(l.rationale)}</p>
       <div class="verdict">⚖ Riesgo: ${esc(env === "real" ? "solo recomendación (entorno real no opera)" : l.verdict)}</div>
       <div class="detail">
-        ${l.signals.map(s => `<div class="sig"><b>${esc(s.agent)}</b>${pill(s.action)}<span>${(s.confidence*100).toFixed(0)}% — ${esc(s.rationale)}</span></div>`).join("")}
+        ${l.signals.map(s => `<div class="sig"><b>${esc(titles[s.agent] || s.agent)}</b>${pill(s.action)}<span>${(s.confidence*100).toFixed(0)}% — ${esc(s.rationale)}</span></div>`).join("")}
         <div class="meta" style="margin-top:8px">Historial</div>
         ${c.history.map(h => `<div class="hist">${esc(when(h.ts))} · ${pill(h.action)} ${money(h.price)}${h.executed ? " · ejecutada" : ""}</div>`).join("")}
       </div></div>`;
@@ -321,6 +404,8 @@ document.addEventListener("click", async e => {
     if (da.dataset.armed !== "1") { da.dataset.armed = "1"; da.textContent = "¿Seguro? Clic otra vez"; setTimeout(() => { da.dataset.armed = ""; da.textContent = "Eliminar cuenta"; }, 4000); return; }
     await post("/api/real/delete", {account: da.dataset.delA}); lastReal = ""; return refresh();
   }
+  const lc = t.closest("[data-lab]");
+  if (lc) { labSym = lc.dataset.lab; lastLabKey = ""; return refresh(); }
   const c = t.closest(".sym"); if (!c) return;
   const s = c.dataset.s; openSyms.has(s) ? openSyms.delete(s) : openSyms.add(s);
   c.classList.toggle("open");
@@ -341,6 +426,13 @@ async function start(execute){
   showMsg(j.ok ? "" : j.message, j.ok ? "" : "err");
   refresh();
 }
+async function startLab(){
+  const symbols = $("tickers").value.split(/[,\s]+/).filter(Boolean);
+  const j = await (await fetch("/api/lab", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbols, env})})).json();
+  showMsg(j.ok ? "" : j.message, j.ok ? "" : "err");
+  refresh();
+}
+$("bLab").onclick = startLab;
 $("bAnalyze").onclick = () => start(false);
 $("bRun").onclick = () => start(true);
 $("envPaper").onclick = () => setEnv("paper");

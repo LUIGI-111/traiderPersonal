@@ -67,7 +67,7 @@ class YahooMarket:
         import yfinance as yf
 
         t = yf.Ticker(symbol)
-        hist = t.history(period="1y", auto_adjust=True)
+        hist = t.history(period="5y", auto_adjust=True)
         if hist.empty:
             raise ValueError(f"Sin datos de precio para {symbol}")
         try:
@@ -92,6 +92,7 @@ class YahooMarket:
             "indicators": ind,
             "fundamentals": {k: info.get(k) for k in self.FUNDAMENTAL_KEYS if info.get(k) is not None},
             "headlines": headlines,
+            "history": hist,
         }
 
 
@@ -104,9 +105,11 @@ class SyntheticMarket:
         seed = zlib.crc32(symbol.upper().encode())
         rng = np.random.default_rng(seed)
         drift = rng.uniform(-0.0008, 0.0025)
-        n = 300
-        close = rng.uniform(40, 400) * np.cumprod(1 + drift + rng.normal(0, 0.014, n))
-        df = pd.DataFrame({"Close": close, "High": close * 1.012, "Low": close * 0.988})
+        n = 1260
+        cycle = 0.0015 * np.sin(2 * np.pi * np.arange(n) / rng.uniform(300, 500))  # tendencias que suben y bajan
+        close = rng.uniform(40, 400) * np.cumprod(1 + drift + cycle + rng.normal(0, 0.014, n))
+        df = pd.DataFrame({"Close": close, "High": close * 1.012, "Low": close * 0.988},
+                          index=pd.bdate_range(end="2026-11-20", periods=n))
         ind = compute_indicators(df)
         pe = round(float(rng.uniform(9, 45)), 1)
         return {
@@ -117,4 +120,5 @@ class SyntheticMarket:
             "fundamentals": {"trailingPE": pe, "profitMargins": round(float(rng.uniform(0.02, 0.35)), 3),
                              "revenueGrowth": round(float(rng.uniform(-0.05, 0.3)), 3), "synthetic": True},
             "headlines": [f"[demo] {symbol.upper()} datos sintéticos"],
+            "history": df,
         }

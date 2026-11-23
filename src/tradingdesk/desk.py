@@ -7,34 +7,81 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .agents import FundamentalAnalyst, NewsAnalyst, PortfolioManager, TechnicalAnalyst
+from .agents import FundamentalAnalyst, NewsAnalyst, PortfolioManager, StrategyBot, TechnicalAnalyst
 from .broker import PaperBroker
 from .config import Settings
 from .data import MarketData, YahooMarket
+from .lab import run_lab
 from .llm import LLM
 from .risk import RiskManager
+from .strategies import VOTERS, WARMUP
 
 
 class TradingDesk:
-    """Orquesta: datos -> analistas (en paralelo) -> gestor -> riesgo -> broker."""
+    """Orquesta: datos -> laboratorio -> bots (en paralelo) -> gestor -> riesgo -> broker.
+
+    Por defecto es 100% cuantitativo (sin costo de API). Con TD_USE_LLM=1 y una clave válida se suman
+    analistas de Claude (técnico, fundamental, noticias) y Claude sintetiza la decisión."""
 
     def __init__(self, settings: Settings, market: MarketData | None = None, llm: LLM | None = None):
         self.s = settings
         self.market = market or YahooMarket()
-        self.llm = llm or LLM(settings.model)
-        self.analysts = [TechnicalAnalyst(self.llm), FundamentalAnalyst(self.llm), NewsAnalyst(self.llm)]
-        self.pm = PortfolioManager(self.llm)
+        self.llm = llm or (LLM(settings.model) if settings.use_llm else None)
+        use_ai = bool(settings.use_llm and self.llm is not None and self.llm.available)
+        self.analysts = [StrategyBot(k) for k in VOTERS]
+        if use_ai:
+            self.analysts += [TechnicalAnalyst(self.llm), FundamentalAnalyst(self.llm), NewsAnalyst(self.llm)]
+        self.pm = PortfolioManager(self.llm, use_llm=use_ai)
         self.risk = RiskManager(settings)
         state = Path(settings.state_dir)
+        state.mkdir(parents=True, exist_ok=True)
         self.broker = PaperBroker(state / "paper_portfolio.json", settings.starting_cash)
         self.journal_path = state / "journal.jsonl"
+        self.lab_path = state / "lab.json"
         self._lock = threading.Lock()
 
+    # ---------- registro ----------
     def _journal(self, entry: dict[str, Any]) -> None:
         entry = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), **entry}
         with self._lock, self.journal_path.open("a") as f:
             f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
 
+    def _save_lab(self, symbol: str, res: dict[str, Any]) -> None:
+        with self._lock:
+            data = json.loads(self.lab_path.read_text()) if self.lab_path.exists() else {}
+            data[symbol] = {"computed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), **res}
+            tmp = self.lab_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False))
+            tmp.replace(self.lab_path)
+
+    def _lab_for(self, sym: str, ctx: dict[str, Any]) -> dict[str, Any] | None:
+        hist = ctx.get("history")
+        if hist is None or len(hist) < WARMUP + 60:
+            return None
+        res = run_lab(hist)
+        self._save_lab(sym, res)
+        self._journal({"event": "lab", "symbol": sym, "verdict": res["verdict"]})
+        return res
+
+    # ---------- solo laboratorio ----------
+    def lab(self, symbols: list[str]) -> list[dict[str, Any]]:
+        symbols = [s.upper() for s in symbols]
+        self._journal({"event": "run_start", "symbols": symbols, "execute": False, "lab_only": True})
+        out = []
+        for sym in symbols:
+            try:
+                ctx = self.market.get_context(sym)
+                res = self._lab_for(sym, ctx)
+                if res is None:
+                    raise ValueError("historial insuficiente")
+                out.append({"symbol": sym, "verdict": res["verdict"]})
+            except Exception as e:  # noqa: BLE001
+                out.append({"symbol": sym, "error": str(e)})
+                self._journal({"event": "data_error", "symbol": sym, "error": str(e)[:200]})
+        self._journal({"event": "run_end", "symbols": symbols, "analyzed": len([o for o in out if "error" not in o])})
+        return out
+
+    # ---------- ronda completa ----------
     def run(self, symbols: list[str], execute: bool = True) -> list[dict[str, Any]]:
         symbols = [s.upper() for s in symbols]
         self._journal({"event": "run_start", "symbols": symbols, "execute": execute})
@@ -48,12 +95,15 @@ class TradingDesk:
                 self._journal({"event": "data_error", "symbol": sym, "error": str(e)[:200]})
 
         prices = {s: c["price"] for s, c in contexts.items()}
-        # 1) stop-losses primero
-        if execute:
+        if execute:  # 1) stop-losses primero
             for o in self.broker.check_stops(prices):
                 self._journal({"event": "stop_loss", "symbol": o.symbol, "qty": o.qty, "price": o.price})
 
         for sym, ctx in contexts.items():
+            lab_res = self._lab_for(sym, ctx)
+            ctx["lab"] = lab_res
+            weights = lab_res["weights"] if lab_res else None
+
             def work(a, sym=sym, ctx=ctx):
                 self._journal({"event": "agent_start", "agent": a.name, "symbol": sym})
                 sig = a.analyze(ctx)
@@ -69,7 +119,7 @@ class TradingDesk:
                 "position_qty": self.broker.qty(sym),
             }
             self._journal({"event": "agent_start", "agent": "portfolio_manager", "symbol": sym})
-            decision = self.pm.decide(sym, signals, portfolio_view)
+            decision = self.pm.decide(sym, signals, portfolio_view, weights)
             self._journal({"event": "agent_done", "agent": "portfolio_manager", "symbol": sym, "signal": decision.to_dict()})
             self._journal({"event": "agent_start", "agent": "risk_manager", "symbol": sym})
             order, verdict = self.risk.evaluate(
